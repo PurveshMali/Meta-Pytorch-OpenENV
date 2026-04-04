@@ -244,7 +244,3 @@ Tests cover: priority/category/reply graders, episode lifecycle, edge cases (spa
 | `ENV_BASE_URL` | Email triage server URL (default: `http://localhost:7860`) | No |
 
 ---
-
-## 📜 License
-
-MIT License. See [LICENSE](LICENSE) for details.
