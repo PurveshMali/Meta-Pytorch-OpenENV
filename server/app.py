@@ -95,76 +95,108 @@ def home():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Email Triage Env</title>
+        <title>Email Triage AI</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
         <style>
+            *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
             body {
-                font-family: Arial, sans-serif;
-                background: linear-gradient(135deg, #0f172a, #1e293b);
-                color: white;
-                text-align: center;
-                padding: 50px;
+                font-family: 'DM Sans', sans-serif;
+                background: #f9f8f6;
+                color: #1a1a18;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 2rem;
             }
-            .container {
-                max-width: 800px;
-                margin: auto;
+            .container { max-width: 560px; width: 100%; }
+            .eyebrow {
+                font-family: 'DM Mono', monospace;
+                font-size: 11px;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: #888780;
+                margin-bottom: 0.5rem;
             }
-            h1 {
-                font-size: 3rem;
-                margin-bottom: 10px;
-            }
-            p {
-                font-size: 1.2rem;
-                color: #cbd5f5;
-            }
-            .card {
-                background: rgba(255,255,255,0.05);
-                padding: 20px;
-                margin-top: 20px;
-                border-radius: 12px;
-                backdrop-filter: blur(10px);
-            }
-            a {
-                display: inline-block;
-                margin: 10px;
-                padding: 12px 20px;
-                background: #3b82f6;
-                color: white;
-                text-decoration: none;
+            h1 { font-size: 28px; font-weight: 500; line-height: 1.2; margin-bottom: 0.4rem; }
+            .subtitle { font-size: 14px; color: #5f5e5a; margin-bottom: 2rem; }
+            hr { border: none; border-top: 0.5px solid #d3d1c7; margin-bottom: 2rem; }
+            .links { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 2.5rem; }
+            a.btn {
+                font-family: 'DM Mono', monospace;
+                font-size: 12px;
+                padding: 8px 16px;
                 border-radius: 8px;
-                font-weight: bold;
+                border: 0.5px solid #b4b2a9;
+                color: #5f5e5a;
+                text-decoration: none;
+                transition: background 0.15s, color 0.15s;
             }
-            a:hover {
-                background: #2563eb;
+            a.btn:hover { background: #f1efe8; color: #1a1a18; }
+            a.btn.primary { border-color: #85b7eb; color: #185fa5; }
+            .section-label {
+                font-family: 'DM Mono', monospace;
+                font-size: 11px;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: #888780;
+                margin-bottom: 1rem;
             }
+            .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 2.5rem; }
+            .feat { background: #f1efe8; border-radius: 8px; padding: 0.875rem 1rem; }
+            .feat-label { font-size: 11px; font-family: 'DM Mono', monospace; color: #888780; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+            .feat-val { font-size: 13px; font-weight: 500; color: #1a1a18; }
+            .footer { display: flex; align-items: center; gap: 8px; }
+            .avatar {
+                width: 28px; height: 28px; border-radius: 50%;
+                background: #b5d4f4; display: flex;
+                align-items: center; justify-content: center;
+                font-size: 11px; font-weight: 500; color: #185fa5;
+                flex-shrink: 0;
+            }
+            .author { font-size: 13px; color: #5f5e5a; }
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>📧 Email Triage AI</h1>
-            <p>Smart email prioritization using reinforcement learning</p>
+            <p class="eyebrow">v1.0 &middot; REST API</p>
+            <h1>Email Triage AI</h1>
+            <p class="subtitle">Smart email prioritization using reinforcement learning</p>
 
-            <div class="card">
-                <h3>🚀 API Endpoints</h3>
-                <a href="/docs">Swagger Docs</a>
-                <a href="/health">Health Check</a>
+            <hr>
+
+            <div class="links">
+                <a href="/docs" class="btn primary">Swagger docs</a>
+                <a href="/health" class="btn">Health check</a>
             </div>
 
-            <div class="card">
-                <h3>🧠 Features</h3>
-                <p>✔ Email classification</p>
-                <p>✔ Priority prediction</p>
-                <p>✔ AI-generated responses</p>
+            <p class="section-label">Capabilities</p>
+            <div class="features">
+                <div class="feat">
+                    <div class="feat-label">Classify</div>
+                    <div class="feat-val">Email classification</div>
+                </div>
+                <div class="feat">
+                    <div class="feat-label">Prioritize</div>
+                    <div class="feat-val">Priority prediction</div>
+                </div>
+                <div class="feat">
+                    <div class="feat-label">Respond</div>
+                    <div class="feat-val">AI-generated replies</div>
+                </div>
             </div>
 
-            <div class="card">
-                <h3>👨‍💻 Built By</h3>
-                <p>Purvesh Mali</p>
+            <hr>
+
+            <div class="footer">
+                <div class="avatar">PM</div>
+                <span class="author">Built by Purvesh Mali</span>
             </div>
         </div>
     </body>
     </html>
     """
-
 
 @app.get("/health")
 async def health():
