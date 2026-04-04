@@ -1,24 +1,54 @@
-FROM python:3.11-slim
+ARG BASE_IMAGE=ghcr.io/meta-pytorch/openenv-base:latest
+FROM ${BASE_IMAGE} AS builder
 
 WORKDIR /app
 
-# Install dependencies
-COPY server/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git curl && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy source
-COPY models.py /app/models.py
-COPY emails.py /app/emails.py
-COPY server/__init__.py /app/server/__init__.py
-COPY server/environment.py /app/server/environment.py
-COPY server/app.py /app/server/app.py
+ARG BUILD_MODE=standalone
+ARG ENV_NAME=email_triage_env
 
-# Expose port
-EXPOSE 7860
+# 🔥 ADD THIS (increase timeout + stable downloads)
+ENV UV_HTTP_TIMEOUT=300
+ENV UV_INDEX_URL=https://pypi.org/simple
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD python -c "import httpx; httpx.get('http://localhost:7860/health').raise_for_status()"
+COPY . /app/env
 
-# Run
-CMD ["python", "-m", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
+WORKDIR /app/env
+
+RUN if ! command -v uv >/dev/null 2>&1; then \
+        curl -LsSf https://astral.sh/uv/install.sh | sh && \
+        mv /root/.local/bin/uv /usr/local/bin/uv && \
+        mv /root/.local/bin/uvx /usr/local/bin/uvx; \
+    fi
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -f uv.lock ]; then \
+        uv sync --frozen --no-install-project --no-editable; \
+    else \
+        uv sync --no-install-project --no-editable; \
+    fi
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -f uv.lock ]; then \
+        uv sync --frozen --no-editable; \
+    else \
+        uv sync --no-editable; \
+    fi
+
+FROM ${BASE_IMAGE}
+
+WORKDIR /app
+
+COPY --from=builder /app/env/.venv /app/.venv
+COPY --from=builder /app/env /app/env
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/env:$PYTHONPATH"
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:7860/health || exit 1
+
+CMD ["sh", "-c", "cd /app/env && uvicorn server.app:app --host 0.0.0.0 --port 7860"]
