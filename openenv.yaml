@@ -1,0 +1,91 @@
+name: email-triage-env
+version: "1.0.0"
+description: >
+  Email Triage RL Environment — A realistic inbox management task where an AI
+  agent must prioritise, categorise, and reply to a stream of business emails.
+  Three tasks of increasing difficulty (easy → medium → hard) with deterministic
+  graders and rich partial-progress reward signals.
+
+author: openenv-hackathon
+tags:
+  - openenv
+  - email
+  - triage
+  - nlp
+  - real-world
+  - customer-support
+
+license: MIT
+
+tasks:
+  - id: task1_easy_labelling
+    description: "Label 8 emails with correct priority and category (easy)"
+    difficulty: easy
+    max_steps: 20
+    reward_range: [0.0, 1.0]
+
+  - id: task2_medium_triage_reply
+    description: "Triage 6 emails AND draft quality replies (medium)"
+    difficulty: medium
+    max_steps: 18
+    reward_range: [0.0, 1.0]
+
+  - id: task3_hard_full_inbox
+    description: "Full inbox management with ambiguous signals (hard)"
+    difficulty: hard
+    max_steps: 30
+    reward_range: [0.0, 1.0]
+
+action_space:
+  type: structured
+  fields:
+    - name: action_type
+      type: enum
+      values: [label, reply, archive, delete, escalate, next]
+    - name: priority
+      type: enum
+      values: [urgent, high, normal, low, spam]
+      optional: true
+    - name: category
+      type: enum
+      values: [customer_support, sales_inquiry, billing, technical, internal, newsletter, spam, other]
+      optional: true
+    - name: reply_text
+      type: string
+      max_length: 500
+      optional: true
+    - name: reasoning
+      type: string
+      optional: true
+
+observation_space:
+  type: structured
+  fields:
+    - name: current_email
+      type: object
+      description: "The email the agent should act on"
+    - name: inbox_size
+      type: integer
+      description: "Emails remaining in inbox"
+    - name: processed_count
+      type: integer
+    - name: step_count
+      type: integer
+    - name: last_action_feedback
+      type: string
+    - name: last_action_reward
+      type: float
+    - name: cumulative_reward
+      type: float
+    - name: done
+      type: boolean
+
+server:
+  port: 7860
+  dockerfile: server/Dockerfile
+
+endpoints:
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  health: GET /health
