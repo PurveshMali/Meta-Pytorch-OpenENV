@@ -80,6 +80,91 @@ class StepResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+
+app = FastAPI(
+    title="Email Triage Environment",
+    description="AI-powered email prioritization and response system",
+    version="1.0.0"
+)
+
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Email Triage Env</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background: linear-gradient(135deg, #0f172a, #1e293b);
+                color: white;
+                text-align: center;
+                padding: 50px;
+            }
+            .container {
+                max-width: 800px;
+                margin: auto;
+            }
+            h1 {
+                font-size: 3rem;
+                margin-bottom: 10px;
+            }
+            p {
+                font-size: 1.2rem;
+                color: #cbd5f5;
+            }
+            .card {
+                background: rgba(255,255,255,0.05);
+                padding: 20px;
+                margin-top: 20px;
+                border-radius: 12px;
+                backdrop-filter: blur(10px);
+            }
+            a {
+                display: inline-block;
+                margin: 10px;
+                padding: 12px 20px;
+                background: #3b82f6;
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: bold;
+            }
+            a:hover {
+                background: #2563eb;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📧 Email Triage AI</h1>
+            <p>Smart email prioritization using reinforcement learning</p>
+
+            <div class="card">
+                <h3>🚀 API Endpoints</h3>
+                <a href="/docs">Swagger Docs</a>
+                <a href="/health">Health Check</a>
+            </div>
+
+            <div class="card">
+                <h3>🧠 Features</h3>
+                <p>✔ Email classification</p>
+                <p>✔ Priority prediction</p>
+                <p>✔ AI-generated responses</p>
+            </div>
+
+            <div class="card">
+                <h3>👨‍💻 Built By</h3>
+                <p>Purvesh Mali</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
 
 @app.get("/health")
 async def health():

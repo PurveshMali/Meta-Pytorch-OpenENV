@@ -1,3 +1,14 @@
+---
+title: Email Triage Env
+emoji: 📧
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+tags:
+  - openenv
+---
+
 # 📧 Email Triage Environment
 
 > An OpenEnv-compatible RL environment where an AI agent learns to manage a realistic business inbox — prioritising, categorising, and replying to emails with accuracy and nuance.
@@ -244,15 +255,3 @@ Tests cover: priority/category/reply graders, episode lifecycle, edge cases (spa
 | `ENV_BASE_URL` | Email triage server URL (default: `http://localhost:7860`) | No |
 
 ---
-
----
-title: Email Triage Env
-emoji: 📧
-colorFrom: blue
-colorTo: purple
-sdk: docker
----
-
-# Email Triage Environment
-
-This is an OpenEnv environment for email prioritization and triaging tasks.
