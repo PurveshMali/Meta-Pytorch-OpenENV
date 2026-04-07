@@ -1,9 +1,9 @@
 name: email-triage-env
 version: "1.0.0"
 description: >
-  Email Triage RL Environment — A realistic inbox management task where an AI
+  Email Triage RL Environment - A realistic inbox management task where an AI
   agent must prioritise, categorise, and reply to a stream of business emails.
-  Three tasks of increasing difficulty (easy → medium → hard) with deterministic
+  Three tasks of increasing difficulty (easy -> medium -> hard) with deterministic
   graders and rich partial-progress reward signals.
 
 author: openenv-hackathon

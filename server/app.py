@@ -74,8 +74,44 @@ class StepResponse(BaseModel):
 
 
 @app.get("/")
-async def root():
+async def root(request: Request):
+    if "text/html" in request.headers.get("accept", ""):
+        return {"message": "Welcome to Email Triage Environment. Use /docs for API documentation."}
     return {"status": "ok", "env": "email_triage", "endpoints": ["/reset", "/step", "/state", "/health", "/tasks"]}
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/web", response_class=HTMLResponse)
+@app.get("/web/", response_class=HTMLResponse)
+async def web_interface():
+    return """
+    <html>
+        <head>
+            <title>Email Triage Environment</title>
+            <style>
+                body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f0f2f5; color: #1c1e21; }
+                .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; }
+                h1 { color: #1a73e8; }
+                .status { margin-top: 1rem; padding: 0.5rem 1rem; border-radius: 20px; background: #e6f4ea; color: #1e7e34; font-weight: bold; }
+                ul { text-align: left; margin-top: 1rem; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h1>📧 Email Triage Env</h1>
+                <p>Status: <span class="status">ONLINE</span></p>
+                <p>The environment is running and ready for agents.</p>
+                <ul>
+                    <li><b>API Endpoints:</b></li>
+                    <li>POST <code>/reset</code></li>
+                    <li>POST <code>/step</code></li>
+                    <li>GET <code>/state</code></li>
+                </ul>
+                <p><small>Powered by OpenEnv</small></p>
+            </div>
+        </body>
+    </html>
+    """
 
 
 @app.get("/health")

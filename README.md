@@ -11,7 +11,7 @@ tags:
 
 # 📧 Email Triage Environment
 
-> An OpenEnv-compatible RL environment where an AI agent learns to manage a realistic business inbox — prioritising, categorising, and replying to emails with accuracy and nuance.
+> An OpenEnv-compatible RL environment where an AI agent learns to manage a realistic business inbox - prioritising, categorising, and replying to emails with accuracy and nuance.
 
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-compatible-blue)](https://meta-pytorch.org/OpenEnv/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
@@ -19,42 +19,42 @@ tags:
 
 ---
 
-## 🎯 Environment Description
+## [Goal] Environment Description
 
-Email triage is a universal, high-value task performed by millions of knowledge workers daily. An inbox is a stream of signals with wildly varying urgency — from a spam prize notification to a regulatory audit notice — and routing them correctly has real business impact.
+Email triage is a universal, high-value task performed by millions of knowledge workers daily. An inbox is a stream of signals with wildly varying urgency - from a spam prize notification to a regulatory audit notice - and routing them correctly has real business impact.
 
 This environment puts an AI agent in the role of an executive assistant. It receives one email at a time and must:
 
-1. **Classify** the email's priority (urgent → spam) and category
-2. **Act** — label it, draft a reply, archive, delete, escalate, or skip
-3. **Handle ambiguity** — casual-toned C-suite requests, auto-resolved alerts that look critical, and compliance notices that look routine
+1. **Classify** the email's priority (urgent -> spam) and category
+2. **Act** - label it, draft a reply, archive, delete, escalate, or skip
+3. **Handle ambiguity** - casual-toned C-suite requests, auto-resolved alerts that look critical, and compliance notices that look routine
 
 The reward function provides dense, partial-credit signals throughout the episode, not just at the end.
 
 ---
 
-## 🗂️ Project Structure
+## [Structure] Project Structure
 
 ```
 email_triage_env/
-├── models.py              # Pydantic models: Action, Observation, State
-├── emails.py              # Email dataset with ground-truth labels for all 3 tasks
-├── client.py              # Async HTTP client for the environment
-├── inference.py           # ← Baseline inference script (hackathon entrypoint)
-├── openenv.yaml           # OpenEnv manifest
-├── README.md
-├── server/
-│   ├── environment.py     # Core RL logic: reset(), step(), state(), graders
-│   ├── app.py             # FastAPI server
-│   ├── Dockerfile
-│   └── requirements.txt
-└── tests/
-    └── test_environment.py
+ models.py              # Pydantic models: Action, Observation, State
+ emails.py              # Email dataset with ground-truth labels for all 3 tasks
+ client.py              # Async HTTP client for the environment
+ inference.py           #  Baseline inference script (hackathon entrypoint)
+ openenv.yaml           # OpenEnv manifest
+ README.md
+ server/
+    environment.py     # Core RL logic: reset(), step(), state(), graders
+    app.py             # FastAPI server
+    Dockerfile
+    requirements.txt
+ tests/
+     test_environment.py
 ```
 
 ---
 
-## 🎮 Action Space
+## [Action Space] Action Space
 
 | Field | Type | Values |
 |-------|------|--------|
@@ -65,16 +65,16 @@ email_triage_env/
 | `reasoning` | string (optional) | Agent's explanation |
 
 **Action semantics:**
-- `label` — classify only (requires priority + category)
-- `reply` — classify AND send a reply (requires priority + category + reply_text)
-- `archive` — store without replying (good for low/normal non-urgent)
-- `delete` — discard (best for spam; penalised if used on important emails)
-- `escalate` — hand off to a human (rewarded for urgent/high, penalised otherwise)
-- `next` — skip current email (small penalty to discourage lazy agents)
+- `label` - classify only (requires priority + category)
+- `reply` - classify AND send a reply (requires priority + category + reply_text)
+- `archive` - store without replying (good for low/normal non-urgent)
+- `delete` - discard (best for spam; penalised if used on important emails)
+- `escalate` - hand off to a human (rewarded for urgent/high, penalised otherwise)
+- `next` - skip current email (small penalty to discourage lazy agents)
 
 ---
 
-## 👁️ Observation Space
+## [Observation] Observation Space
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -90,24 +90,24 @@ email_triage_env/
 
 ---
 
-## 📋 Tasks
+## [Tasks] Tasks
 
-### Task 1 — Easy: Priority Labelling
+### Task 1 - Easy: Priority Labelling
 - **8 emails** with clear, unambiguous signals
 - Goal: assign correct `priority` + `category` to each email
 - Spam emails have obvious giveaways (`.xyz` domain, prize language)
 - Urgent emails clearly signal urgency in subject line
 - **Max steps:** 20
-- **Expected score (baseline LLM):** ~0.70–0.85
+- **Expected score (baseline LLM):** ~0.700.85
 
-### Task 2 — Medium: Triage + Reply Drafting
+### Task 2 - Medium: Triage + Reply Drafting
 - **6 emails** requiring both classification AND reply drafting
 - Some emails should NOT be replied to (penalised if you do)
 - Reply quality scored on keyword relevance, length, and tone
 - **Max steps:** 18
-- **Expected score (baseline LLM):** ~0.45–0.65
+- **Expected score (baseline LLM):** ~0.450.65
 
-### Task 3 — Hard: Ambiguous Full Inbox
+### Task 3 - Hard: Ambiguous Full Inbox
 - **10 emails** with deliberate difficulty:
   - Casual-tone email from CFO (still `high` priority)
   - Auto-resolved `CRITICAL` alert (actually `normal`)
@@ -116,14 +116,14 @@ email_triage_env/
   - Unsolicited competitor BD outreach (`low`)
 - Agent must avoid surface-level heuristics
 - **Max steps:** 30
-- **Expected score (baseline LLM):** ~0.30–0.50
+- **Expected score (baseline LLM):** ~0.300.50
 
 ---
 
-## 🏆 Reward Function
+## [Rewards] Reward Function
 
 ### Priority scoring (partial credit)
-Priority is scored by distance on the urgency scale: `urgent → high → normal → low → spam`
+Priority is scored by distance on the urgency scale: `urgent -> high -> normal -> low -> spam`
 
 | Distance | Score |
 |----------|-------|
@@ -134,7 +134,7 @@ Priority is scored by distance on the urgency scale: `urgent → high → normal
 
 ### Reply quality scoring
 - **Keyword presence:** Does the reply address the email's core concern?
-- **Length check:** Rewards appropriately concise replies (30–500 chars)
+- **Length check:** Rewards appropriately concise replies (30500 chars)
 - **Avoidance:** Penalises corporate-speak phrases that damage relationships
 
 ### Action rewards
@@ -152,7 +152,7 @@ Priority is scored by distance on the urgency scale: `urgent → high → normal
 
 ---
 
-## ⚙️ Setup & Usage
+## [Setup] Setup & Usage
 
 ### Local (no Docker)
 
@@ -209,7 +209,7 @@ print(result["reward"])  # e.g. 0.96
 
 ---
 
-## 📊 Baseline Scores
+## [Baseline] Baseline Scores
 
 Scores obtained with `gpt-4o-mini` at temperature 0.2:
 
@@ -222,7 +222,7 @@ Scores obtained with `gpt-4o-mini` at temperature 0.2:
 
 ---
 
-## 🌐 Endpoints
+## [Endpoints] Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -235,7 +235,7 @@ Scores obtained with `gpt-4o-mini` at temperature 0.2:
 
 ---
 
-## 🧪 Running Tests
+## [Testing] Running Tests
 
 ```bash
 pytest tests/test_environment.py -v
@@ -245,7 +245,7 @@ Tests cover: priority/category/reply graders, episode lifecycle, edge cases (spa
 
 ---
 
-## 📄 Environment Variables
+## [Environment] Environment Variables
 
 | Variable | Description | Required |
 |----------|-------------|----------|
