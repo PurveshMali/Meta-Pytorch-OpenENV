@@ -47,15 +47,7 @@ TASKS = [
 
 
 def log_start(task: str, env: str, model: str) -> None:
-    print(
-        json.dumps({
-            "type": "START",
-            "task": task,
-            "env": env,
-            "model": model,
-        }),
-        flush=True,
-    )
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
 def log_step(
@@ -65,35 +57,16 @@ def log_step(
     done: bool,
     error: Optional[str],
 ) -> None:
-    print(
-        json.dumps({
-            "type": "STEP",
-            "step": step,
-            "action": action,
-            "reward": round(reward, 4),
-            "done": done,
-            "error": error,
-        }),
-        flush=True,
-    )
+    print(f"[STEP] step={step} reward={reward:.4f} done={done} action={action}", flush=True)
 
 
 def log_end(
+    task: str,
     success: bool,
     steps: int,
     score: float,
-    rewards: List[float],
 ) -> None:
-    print(
-        json.dumps({
-            "type": "END",
-            "success": success,
-            "steps": steps,
-            "score": round(score, 4),
-            "rewards": [round(r, 4) for r in rewards],
-        }),
-        flush=True,
-    )
+    print(f"[END] task={task} score={score:.4f} steps={steps} success={success}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +275,7 @@ async def run_task(
         success = False
 
     finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        log_end(task=task_id, success=success, steps=steps_taken, score=score)
 
     return {"task_id": task_id, "score": score, "success": success, "steps": steps_taken}
 
