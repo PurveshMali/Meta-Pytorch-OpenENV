@@ -25,9 +25,10 @@ from openai import OpenAI
 # Config — read from environment variables
 # ---------------------------------------------------------------------------
 
-API_BASE_URL: str = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME: str = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-API_KEY: str = os.environ.get("HF_TOKEN", os.environ.get("OPENAI_API_KEY", ""))
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+HF_TOKEN = os.getenv("HF_TOKEN")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 ENV_BASE_URL: str = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
 
 TEMPERATURE: float = 0.2
@@ -286,11 +287,11 @@ async def run_task(
 
 
 async def main() -> None:
-    if not API_KEY:
-        print("[ERROR] HF_TOKEN or OPENAI_API_KEY environment variable not set.", flush=True)
+    if not HF_TOKEN:
+        print("[ERROR] HF_TOKEN environment variable not set.", flush=True)
         sys.exit(1)
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     # Wait for env server to be ready
     async with httpx.AsyncClient(timeout=60.0) as http:
