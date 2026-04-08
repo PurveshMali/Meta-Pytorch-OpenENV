@@ -236,7 +236,7 @@ async def list_tasks():
 async def get_score():
     global _env
     if _env is None:
-        return {"final_score": 0.0, "cumulative_reward": 0.0, "done": False}
+        return {"final_score": 0.001, "cumulative_reward": 0.0, "done": False}
     return {
         "final_score": _env.final_score(),
         "cumulative_reward": _env._cumulative_reward,

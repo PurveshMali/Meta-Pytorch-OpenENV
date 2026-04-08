@@ -375,5 +375,6 @@ class EmailTriageEnvironment:
         max_per_email = p_w + c_w + r_w + e_w
 
         theoretical_max = n_emails * max_per_email
-        raw = self._cumulative_reward / theoretical_max if theoretical_max > 0 else 0.0
-        return max(0.0, min(1.0, raw))
+        raw = self._cumulative_reward / theoretical_max if theoretical_max > 0 else 0.5
+        # Ensure score is strictly within (0, 1) per hackathon validator requirements
+        return max(0.001, min(0.999, raw))
