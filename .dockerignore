@@ -1,0 +1,14 @@
+.git
+__pycache__
+*.pyc
+temp
+uv.lock
+.venv
+.gemini
+artifacts
+implementation_plan.md
+task.md
+walkthrough.md
+validate-submission.sh
+validate-submission.ps1
+docker-build-check.log

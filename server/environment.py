@@ -1,211 +1,159 @@
 """
-Email Triage Environment - Core Logic
-Implements reset(), step(), state() with graders and reward shaping.
+Bug Triage & Patch Validation Environment - Core Logic
+State machine per bug: new -> reproduced -> diagnosed -> patched -> validated -> closed
+Rich reward shaping with partial credit at every step.
 """
 
 from __future__ import annotations
-
-import copy
-import uuid
+import copy, uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from models import (
-    ActionType,
-    Category,
-    EmailTriageAction,
-    EmailTriageObservation,
-    EmailTriageState,
-    Priority,
+    ActionType, Component, BugTriageAction,
+    BugTriageObservation, BugTriageState, Severity,
 )
-from emails import ALL_TASKS
+from bugs import ALL_TASKS
+
+SEVERITY_ORDER = ["critical", "high", "medium", "low", "wontfix"]
+SEVERITY_DISTANCE_PENALTY = {0: 1.0, 1: 0.5, 2: 0.1, 3: 0.0, 4: 0.0}
+
+BUG_STATE_MACHINE = ["new", "reproduced", "diagnosed", "patched", "validated", "closed"]
 
 
-# ---------------------------------------------------------------------------
-# Priority adjacency for partial credit
-# ---------------------------------------------------------------------------
-
-PRIORITY_ORDER = ["urgent", "high", "normal", "low", "spam"]
-PRIORITY_DISTANCE_PENALTY = {0: 1.0, 1: 0.5, 2: 0.1, 3: 0.0, 4: 0.0}
-
-CATEGORY_EXACT_SCORE = 1.0
-CATEGORY_WRONG_SCORE = 0.0
-
-
-def _priority_score(predicted: str, true: str) -> float:
-    """Partial credit for priority based on proximity in severity scale."""
-    if predicted == true:
-        return 1.0
+def _severity_score(predicted: str, true: str) -> float:
     try:
-        pd = PRIORITY_ORDER.index(predicted)
-        td = PRIORITY_ORDER.index(true)
-        dist = abs(pd - td)
-        return PRIORITY_DISTANCE_PENALTY.get(dist, 0.0)
+        d = abs(SEVERITY_ORDER.index(predicted) - SEVERITY_ORDER.index(true))
+        return SEVERITY_DISTANCE_PENALTY.get(d, 0.0)
     except ValueError:
         return 0.0
 
 
-def _category_score(predicted: str, true: str) -> float:
-    """Exact match for category (no partial credit)."""
-    return CATEGORY_EXACT_SCORE if predicted == true else CATEGORY_WRONG_SCORE
+def _component_score(predicted: str, true: str) -> float:
+    return 1.0 if predicted == true else 0.0
 
 
-def _reply_quality_score(reply_text: str, keywords: List[str], avoid: List[str]) -> float:
-    """Score reply quality by keyword presence and avoidance."""
-    if not reply_text or len(reply_text.strip()) < 20:
-        return 0.0
-
-    text_lower = reply_text.lower()
-
-    # Keyword presence (up to 0.7 of score)
-    if keywords:
-        hits = sum(1 for kw in keywords if kw.lower() in text_lower)
-        keyword_score = min(hits / max(len(keywords) * 0.5, 1), 1.0) * 0.7
-    else:
-        keyword_score = 0.7  # No keywords required → full keyword score
-
-    # Avoid bad phrases (up to 0.3 of score — deductions)
-    avoid_penalty = sum(0.15 for phrase in avoid if phrase.lower() in text_lower)
-
-    # Length bonus: penalise very short or very long replies
-    length = len(reply_text.strip())
-    if length < 30:
-        length_score = 0.0
-    elif length < 80:
-        length_score = 0.15
-    elif length <= 500:
-        length_score = 0.3
-    else:
-        length_score = 0.1  # Too verbose
-
-    raw = keyword_score + length_score - avoid_penalty
-    return max(0.0, min(1.0, raw))
+def _keyword_score(text: str, keywords: List[str], weight: float = 1.0) -> float:
+    if not text or not keywords:
+        return weight  # full credit if no keywords required
+    text_lower = text.lower()
+    hits = sum(1 for kw in keywords if kw.lower() in text_lower)
+    return weight * min(hits / max(len(keywords) * 0.4, 1), 1.0)
 
 
-# ---------------------------------------------------------------------------
-# Environment class
-# ---------------------------------------------------------------------------
+def _length_ok(text: Optional[str], min_len: int = 30) -> bool:
+    return bool(text and len(text.strip()) >= min_len)
 
 
-class EmailTriageEnvironment:
-    """
-    Email Triage RL Environment.
-
-    Real-world task: process an inbox by labelling priority, categorising,
-    and drafting appropriate replies. Three tasks of increasing difficulty.
-    """
-
-    def __init__(self, task_id: str = "task1_easy_labelling", seed: int = 42):
+class BugTriageEnvironment:
+    def __init__(self, task_id: str = "task1_easy_severity_routing", seed: int = 42):
         if task_id not in ALL_TASKS:
             raise ValueError(f"Unknown task_id: {task_id}. Choose from {list(ALL_TASKS.keys())}")
         self.task_id = task_id
         self.seed = seed
         self._task_config = ALL_TASKS[task_id]
-
-        # Episode state
-        self._episode_id: str = ""
-        self._inbox: List[Dict[str, Any]] = []
-        self._processed: List[Dict[str, Any]] = []
-        self._step_count: int = 0
-        self._cumulative_reward: float = 0.0
-        self._done: bool = False
-        self._current_email_idx: int = 0
-
-    # ------------------------------------------------------------------
-    # OpenEnv API
-    # ------------------------------------------------------------------
-
-    def reset(self) -> EmailTriageObservation:
-        """Start a fresh episode."""
-        self._episode_id = str(uuid.uuid4())[:8]
-        self._inbox = copy.deepcopy(self._task_config["emails"])
-        self._processed = []
+        self._episode_id = ""
+        self._backlog: List[Dict] = []
+        self._resolved: List[Dict] = []
+        self._current_idx = 0
+        self._bug_state = "new"
         self._step_count = 0
         self._cumulative_reward = 0.0
         self._done = False
-        self._current_email_idx = 0
+        self._reproduce_result: Optional[str] = None
+        self._diagnosis_feedback: Optional[str] = None
+        self._patch_feedback: Optional[str] = None
+        self._validation_feedback: Optional[str] = None
 
-        return self._build_observation(
-            last_feedback="Inbox loaded. Start triaging emails.",
-            last_reward=0.0,
-        )
+    def reset(self) -> BugTriageObservation:
+        self._episode_id = str(uuid.uuid4())[:8]
+        self._backlog = copy.deepcopy(self._task_config["bugs"])
+        self._resolved = []
+        self._current_idx = 0
+        self._bug_state = "new"
+        self._step_count = 0
+        self._cumulative_reward = 0.0
+        self._done = False
+        self._clear_step_state()
+        return self._build_obs("Backlog loaded. Start with the first bug.", 0.0)
 
-    def step(self, action: EmailTriageAction) -> Tuple[EmailTriageObservation, float, bool, Dict]:
-        """Process one action on the current email."""
+    def step(self, action: BugTriageAction) -> Tuple[BugTriageObservation, float, bool, Dict]:
         if self._done:
-            obs = self._build_observation("Episode already done.", 0.0)
-            return obs, 0.0, True, {"error": "episode_done"}
+            return self._build_obs("Episode done.", 0.0), 0.0, True, {}
 
         self._step_count += 1
         reward = 0.0
         feedback = ""
         info: Dict[str, Any] = {}
 
-        # Get current email
-        if self._current_email_idx >= len(self._inbox):
+        if self._current_idx >= len(self._backlog):
             self._done = True
-            obs = self._build_observation("All emails processed.", 0.0)
-            return obs, 0.0, True, {"info": "inbox_empty"}
+            return self._build_obs("All bugs resolved.", 0.0), 0.0, True, {}
 
-        current_email = self._inbox[self._current_email_idx]
+        bug = self._backlog[self._current_idx]
+        atype = action.action_type
 
-        # --- Process action ---
-        action_type = action.action_type
+        # ---- REPRODUCE ----
+        if atype == ActionType.REPRODUCE:
+            reward, feedback = self._grade_reproduce(action, bug)
 
-        if action_type == ActionType.NEXT:
-            # Skip without acting — small penalty for ignoring emails
-            reward = -0.05
-            feedback = f"Skipped email '{current_email['subject'][:40]}'. (-0.05)"
-            self._advance_email(current_email, action_type.value, reward)
+        # ---- DIAGNOSE ----
+        elif atype == ActionType.DIAGNOSE:
+            reward, feedback = self._grade_diagnose(action, bug)
 
-        elif action_type == ActionType.LABEL:
-            reward, feedback = self._grade_label(action, current_email)
-            self._advance_email(current_email, action_type.value, reward)
+        # ---- PATCH ----
+        elif atype == ActionType.PATCH:
+            reward, feedback = self._grade_patch(action, bug)
 
-        elif action_type == ActionType.REPLY:
-            reward, feedback = self._grade_reply(action, current_email)
-            self._advance_email(current_email, action_type.value, reward)
+        # ---- VALIDATE ----
+        elif atype == ActionType.VALIDATE:
+            reward, feedback = self._grade_validate(action, bug)
 
-        elif action_type == ActionType.DELETE:
-            reward, feedback = self._grade_delete(action, current_email)
-            self._advance_email(current_email, action_type.value, reward)
+        # ---- ESCALATE ----
+        elif atype == ActionType.ESCALATE:
+            reward, feedback = self._grade_escalate(action, bug)
 
-        elif action_type == ActionType.ARCHIVE:
-            reward, feedback = self._grade_archive(action, current_email)
-            self._advance_email(current_email, action_type.value, reward)
+        # ---- CLOSE ----
+        elif atype == ActionType.CLOSE:
+            reward, feedback = self._grade_close(action, bug)
+            if reward >= 0:
+                self._advance_bug(bug, atype.value, reward)
 
-        elif action_type == ActionType.ESCALATE:
-            reward, feedback = self._grade_escalate(action, current_email)
-            self._advance_email(current_email, action_type.value, reward)
+        # ---- REQUEST_INFO ----
+        elif atype == ActionType.REQUEST_INFO:
+            if not bug.get("steps_to_reproduce"):
+                reward = 0.1
+                feedback = "Reasonably requested more info for unclear bug. (+0.1)"
+            else:
+                reward = -0.05
+                feedback = "Requested info unnecessarily - steps already provided. (-0.05)"
 
         else:
             reward = -0.1
-            feedback = f"Unknown action type: {action_type}"
+            feedback = f"Unknown action: {atype}"
 
-        # Clamp reward
         reward = max(-1.0, min(1.0, reward))
         self._cumulative_reward += reward
-        info["email_id"] = current_email["email_id"]
-        info["action"] = action_type.value
+        info["bug_id"] = bug["bug_id"]
+        info["action"] = atype.value
+        info["bug_state"] = self._bug_state
 
-        # Check episode end
-        if self._current_email_idx >= len(self._inbox):
+        if self._current_idx >= len(self._backlog):
             self._done = True
         elif self._step_count >= self._task_config["max_steps"]:
             self._done = True
-            feedback += " [MAX STEPS REACHED]"
+            feedback += " [MAX STEPS]"
 
-        obs = self._build_observation(feedback, reward)
-        return obs, reward, self._done, info
+        return self._build_obs(feedback, reward), reward, self._done, info
 
-    def state(self) -> EmailTriageState:
-        """Return full internal state."""
-        return EmailTriageState(
+    def state(self) -> BugTriageState:
+        return BugTriageState(
             episode_id=self._episode_id,
             task_id=self.task_id,
             step_count=self._step_count,
             max_steps=self._task_config["max_steps"],
-            inbox=[self._safe_email(e) for e in self._inbox[self._current_email_idx:]],
-            processed=self._processed,
+            backlog=[self._safe_bug(b) for b in self._backlog[self._current_idx:]],
+            resolved=self._resolved,
+            current_bug_state=self._bug_state,
             cumulative_reward=self._cumulative_reward,
             done=self._done,
             seed=self.seed,
@@ -215,166 +163,160 @@ class EmailTriageEnvironment:
     # Graders
     # ------------------------------------------------------------------
 
-    def _grade_label(self, action: EmailTriageAction, email: Dict) -> Tuple[float, str]:
-        """Grade a LABEL action (priority + category)."""
-        config = self._task_config["scoring"]
+    def _grade_reproduce(self, action: BugTriageAction, bug: Dict) -> Tuple[float, str]:
+        w = self._task_config["scoring"].get("reproduce_weight", 0.15)
+        if not bug.get("reproduce_keywords"):
+            # Bug doesn't need reproduction - penalise wasted step
+            return -0.05, "This bug doesn't require reproduction. (-0.05)"
 
-        if action.priority is None or action.category is None:
-            return -0.1, "LABEL action requires both priority and category. (-0.1)"
+        if not _length_ok(action.test_case, 20):
+            return 0.0, "Test case too short or missing. (0.0)"
 
-        p_score = _priority_score(action.priority.value, email["true_priority"])
-        c_score = _category_score(action.category.value, email["true_category"])
+        score = _keyword_score(action.test_case or "", bug["reproduce_keywords"])
+        reward = w * score
+        self._bug_state = "reproduced"
+        self._reproduce_result = f"Reproduced with score {score:.2f}"
+        return reward, f"Reproduce score={score:.2f} -> reward={reward:.3f}"
 
-        p_weight = config.get("priority_weight", 0.6)
-        c_weight = config.get("category_weight", 0.4)
+    def _grade_diagnose(self, action: BugTriageAction, bug: Dict) -> Tuple[float, str]:
+        cfg = self._task_config["scoring"]
+        w_diag = cfg.get("diagnosis_weight", 0.25)
+        w_sev = cfg.get("severity_weight", 0.15)
+        w_comp = cfg.get("component_weight", 0.10)
 
-        reward = (p_weight * p_score + c_weight * c_score)
-        feedback = (
-            f"Label: priority={action.priority.value} (true={email['true_priority']}, "
-            f"score={p_score:.2f}), category={action.category.value} "
-            f"(true={email['true_category']}, score={c_score:.2f}) → reward={reward:.3f}"
-        )
-        return reward, feedback
+        # Duplicate detection bonus
+        if bug.get("is_duplicate_of"):
+            dup_text = (action.root_cause or "") + (action.reasoning or "")
+            if "duplicate" in dup_text.lower() or bug["is_duplicate_of"].lower() in dup_text.lower():
+                self._bug_state = "diagnosed"
+                self._diagnosis_feedback = "Correctly identified as duplicate"
+                return 0.3, f"Correctly identified as duplicate of {bug['is_duplicate_of']}. (+0.3)"
+            else:
+                return -0.1, f"Missed that this is a duplicate of {bug['is_duplicate_of']}. (-0.1)"
 
-    def _grade_reply(self, action: EmailTriageAction, email: Dict) -> Tuple[float, str]:
-        """Grade a REPLY action on quality and appropriateness."""
-        config = self._task_config["scoring"]
-        reply_weight = config.get("reply_quality_weight", 0.40)
+        if not _length_ok(action.root_cause, 20):
+            return 0.0, "Root cause too short or missing. (0.0)"
 
-        if not email.get("requires_reply", False):
-            # Replying when not needed — small penalty for noise
-            return -0.1, f"Unnecessary reply to '{email['subject'][:40]}'. (-0.1)"
+        diag_score = _keyword_score(action.root_cause or "", bug["diagnosis_keywords"])
+        sev_score = _severity_score(action.severity.value if action.severity else "low", bug["true_severity"])
+        comp_score = _component_score(action.component.value if action.component else "other", bug["true_component"])
 
-        keywords = email.get("reply_keywords", [])
-        avoid = email.get("reply_avoid", [])
-        r_score = _reply_quality_score(action.reply_text or "", keywords, avoid)
-        reward = reply_weight * r_score
+        reward = w_diag * diag_score + w_sev * sev_score + w_comp * comp_score
+        self._bug_state = "diagnosed"
+        self._diagnosis_feedback = f"diag={diag_score:.2f} sev={sev_score:.2f} comp={comp_score:.2f}"
+        return reward, f"Diagnosis: diag_score={diag_score:.2f}, severity={sev_score:.2f}, component={comp_score:.2f} -> reward={reward:.3f}"
 
-        # Also award partial credit for labelling (if priority/category provided)
-        if action.priority and action.category:
-            p_score = _priority_score(action.priority.value, email["true_priority"])
-            c_score = _category_score(action.category.value, email["true_category"])
-            p_weight = config.get("priority_weight", 0.35)
-            c_weight = config.get("category_weight", 0.25)
-            reward += p_weight * p_score + c_weight * c_score
+    def _grade_patch(self, action: BugTriageAction, bug: Dict) -> Tuple[float, str]:
+        w = self._task_config["scoring"].get("patch_weight", 0.25)
 
-        reward = min(1.0, reward)
-        feedback = (
-            f"Reply quality score={r_score:.2f} → reward={reward:.3f}. "
-            f"Reply preview: '{(action.reply_text or '')[:60]}...'"
-        )
-        return reward, feedback
+        if bug.get("is_duplicate_of"):
+            return -0.1, f"No patch needed - this is a duplicate. (-0.1)"
 
-    def _grade_delete(self, action: EmailTriageAction, email: Dict) -> Tuple[float, str]:
-        """Grade a DELETE action (spam detection)."""
-        true_priority = email["true_priority"]
-        if true_priority == "spam":
-            reward = 0.8
-            feedback = f"Correctly deleted spam email. (+0.8)"
-        elif true_priority == "low":
-            reward = 0.1
-            feedback = f"Deleted low-priority email (acceptable but not ideal). (+0.1)"
-        elif true_priority in ("normal", "high"):
-            reward = -0.5
-            feedback = f"MISTAKE: Deleted a {true_priority}-priority email! (-0.5)"
+        if self._bug_state not in ("diagnosed", "reproduced"):
+            return -0.05, f"Patch before diagnosis - rushing. (-0.05) (current state: {self._bug_state})"
+
+        if not _length_ok(action.patch_code, 20):
+            return 0.0, "Patch code too short or missing. (0.0)"
+
+        valid_conditions = bug.get("patch_valid_if", [])
+        score = _keyword_score(action.patch_code or "", valid_conditions)
+        # Also score explanation
+        expl_score = _keyword_score(action.patch_explanation or "", bug.get("patch_keywords", []))
+        combined = 0.7 * score + 0.3 * expl_score
+        reward = w * combined
+        self._bug_state = "patched"
+        self._patch_feedback = f"Patch score={combined:.2f}"
+        return reward, f"Patch quality={combined:.2f} -> reward={reward:.3f}"
+
+    def _grade_validate(self, action: BugTriageAction, bug: Dict) -> Tuple[float, str]:
+        w = self._task_config["scoring"].get("validation_weight", 0.10)
+
+        if self._bug_state != "patched":
+            return -0.05, f"Validate before patch! (state: {self._bug_state}) (-0.05)"
+
+        if not _length_ok(action.test_results, 15):
+            return 0.0, "Test results too short or missing. (0.0)"
+
+        valid_conditions = bug.get("test_valid_if", [])
+        score = _keyword_score(action.test_results or "", valid_conditions)
+        reward = w * score
+        self._bug_state = "validated"
+        self._validation_feedback = f"Validation score={score:.2f}"
+        return reward, f"Validation score={score:.2f} -> reward={reward:.3f}"
+
+    def _grade_escalate(self, action: BugTriageAction, bug: Dict) -> Tuple[float, str]:
+        w = self._task_config["scoring"].get("escalation_accuracy_weight", 0.05)
+        if bug.get("requires_escalation"):
+            self._bug_state = "diagnosed"
+            return w * 1.0, f"Correctly escalated security/critical bug. (+{w:.2f})"
+        elif bug["true_severity"] in ("critical", "high"):
+            return 0.0, "Escalated high-severity bug (acceptable, not required). (0.0)"
         else:
-            reward = -0.8
-            feedback = f"CRITICAL MISTAKE: Deleted an urgent email! (-0.8)"
-        return reward, feedback
+            return -0.1, f"Unnecessarily escalated a {bug['true_severity']} bug. (-0.1)"
 
-    def _grade_archive(self, action: EmailTriageAction, email: Dict) -> Tuple[float, str]:
-        """Grade an ARCHIVE action."""
-        true_priority = email["true_priority"]
-        if true_priority in ("low", "normal"):
-            reward = 0.4
-            feedback = f"Archived {true_priority} email appropriately. (+0.4)"
-        elif true_priority == "spam":
-            reward = 0.3
-            feedback = "Archived spam (delete would be better). (+0.3)"
-        elif true_priority == "high":
-            reward = -0.2
-            feedback = f"Archived a HIGH-priority email without acting. (-0.2)"
+    def _grade_close(self, action: BugTriageAction, bug: Dict) -> Tuple[float, str]:
+        # Closing earns a small bonus for completing the workflow
+        if self._bug_state in ("validated", "diagnosed", "patched"):
+            bonus = 0.05
+            self._bug_state = "closed"
+            return bonus, f"Bug closed after {self._bug_state} stage. (+{bonus})"
+        elif self._bug_state == "new":
+            return -0.1, "Closed bug without any investigation. (-0.1)"
         else:
-            reward = -0.6
-            feedback = f"Archived URGENT email without acting. (-0.6)"
-        return reward, feedback
-
-    def _grade_escalate(self, action: EmailTriageAction, email: Dict) -> Tuple[float, str]:
-        """Grade an ESCALATE action."""
-        true_priority = email["true_priority"]
-        config = self._task_config["scoring"]
-        escalation_weight = config.get("escalation_accuracy_weight", 0.15)
-
-        if true_priority in ("urgent", "high"):
-            reward = escalation_weight * 1.0
-            feedback = f"Correctly escalated {true_priority} email. (+{reward:.2f})"
-        elif true_priority == "normal":
-            reward = 0.0
-            feedback = "Escalated a normal-priority email (unnecessary). (0.0)"
-        else:
-            reward = -0.1
-            feedback = f"Escalated a {true_priority} email unnecessarily. (-0.1)"
-        return reward, feedback
+            self._bug_state = "closed"
+            return 0.02, "Bug closed. (+0.02)"
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    def _advance_email(self, email: Dict, action_taken: str, reward: float):
-        """Move current email to processed list and advance pointer."""
-        record = {**self._safe_email(email), "action_taken": action_taken, "reward": reward}
-        self._processed.append(record)
-        self._current_email_idx += 1
+    def _advance_bug(self, bug: Dict, action: str, reward: float):
+        record = {**self._safe_bug(bug), "action_taken": action,
+                  "reward": reward, "final_state": self._bug_state}
+        self._resolved.append(record)
+        self._current_idx += 1
+        self._bug_state = "new"
+        self._clear_step_state()
 
-    def _safe_email(self, email: Dict) -> Dict:
-        """Return email dict without hidden ground-truth fields."""
-        return {
-            k: v
-            for k, v in email.items()
-            if not k.startswith("true_") and k not in ("reply_keywords", "reply_avoid", "requires_reply")
-        }
+    def _clear_step_state(self):
+        self._reproduce_result = None
+        self._diagnosis_feedback = None
+        self._patch_feedback = None
+        self._validation_feedback = None
 
-    def _build_observation(self, last_feedback: str, last_reward: float) -> EmailTriageObservation:
-        """Construct an observation from current state."""
-        remaining = len(self._inbox) - self._current_email_idx
+    def _safe_bug(self, bug: Dict) -> Dict:
+        hidden = {"true_severity", "true_component", "root_cause", "diagnosis_keywords",
+                  "patch_keywords", "patch_valid_if", "test_valid_if", "reproduce_keywords",
+                  "requires_escalation", "is_duplicate_of", "is_by_design"}
+        return {k: v for k, v in bug.items() if k not in hidden}
+
+    def _build_obs(self, feedback: str, reward: float) -> BugTriageObservation:
+        remaining = len(self._backlog) - self._current_idx
         current = None
-        if self._current_email_idx < len(self._inbox):
-            current = self._safe_email(self._inbox[self._current_email_idx])
-
-        return EmailTriageObservation(
-            current_email=current,
-            inbox_size=remaining,
-            processed_count=len(self._processed),
+        if self._current_idx < len(self._backlog):
+            current = self._safe_bug(self._backlog[self._current_idx])
+        return BugTriageObservation(
+            current_bug=current,
+            bug_state=self._bug_state,
+            reproduce_result=self._reproduce_result,
+            diagnosis_feedback=self._diagnosis_feedback,
+            patch_feedback=self._patch_feedback,
+            validation_feedback=self._validation_feedback,
+            backlog_size=remaining,
+            resolved_count=len(self._resolved),
             step_count=self._step_count,
-            last_action_feedback=last_feedback,
-            last_action_reward=last_reward,
+            last_action_feedback=feedback,
+            last_action_reward=reward,
+            cumulative_reward=self._cumulative_reward,
             task_id=self.task_id,
             done=self._done,
-            cumulative_reward=self._cumulative_reward,
         )
 
-    # ------------------------------------------------------------------
-    # Episode summary / grader score
-    # ------------------------------------------------------------------
-
     def final_score(self) -> float:
-        """
-        Compute normalised final score [0, 1] for the episode.
-        Based on total reward relative to theoretical maximum.
-        """
-        n_emails = len(self._inbox)
-        if n_emails == 0:
+        n = len(self._backlog)
+        if n == 0:
             return 0.0
-
-        # Theoretical max reward per email depends on task config
-        config = self._task_config["scoring"]
-        p_w = config.get("priority_weight", 0.6)
-        c_w = config.get("category_weight", 0.4)
-        r_w = config.get("reply_quality_weight", 0.0)
-        e_w = config.get("escalation_accuracy_weight", 0.0)
-        max_per_email = p_w + c_w + r_w + e_w
-
-        theoretical_max = n_emails * max_per_email
-        raw = self._cumulative_reward / theoretical_max if theoretical_max > 0 else 0.5
-        # Ensure score is strictly within (0, 1) per hackathon validator requirements
-        return max(0.001, min(0.999, raw))
+        cfg = self._task_config["scoring"]
+        max_per = sum(cfg.values())
+        theoretical = n * max_per
+        return max(0.0, min(1.0, self._cumulative_reward / theoretical)) if theoretical > 0 else 0.0
